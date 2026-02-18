@@ -2,9 +2,8 @@ name: run-private-code
 
 on:
   schedule:
-    - cron: '0 3 * * *'   # 11:00 VN
-    - cron: '0 9 * * *'   # 13:00 VN
-    
+    - cron: '0 3 * * *'   # 11:00 VN (LƯU Ý: GitHub cron chạy theo UTC)
+    - cron: '0 9 * * *'   # 13:00 VN (LƯU Ý: GitHub cron chạy theo UTC)
   workflow_dispatch: {}
 
 jobs:
@@ -40,7 +39,6 @@ jobs:
         with:
           fetch-depth: 1
 
-      # Quyết định mode auth (không dùng secrets trực tiếp trong if)
       - name: Determine auth mode
         id: auth
         env:
@@ -55,7 +53,6 @@ jobs:
             echo "mode=none" >> "$GITHUB_OUTPUT"
           fi
 
-      # >>> FIX LỖI INPUTS KHI CHẠY THEO LỊCH <<<
       - name: Resolve parameters (support schedule without inputs)
         id: params
         run: |
@@ -67,7 +64,6 @@ jobs:
       - name: Export resolved privacy to env
         run: echo "YOUTUBE_PRIVACY=${{ steps.params.outputs.privacy }}" >> "$GITHUB_ENV"
 
-      # KÉO CODE từ repo PRIVATE (PAT)
       - name: Checkout PRIVATE via PAT
         if: ${{ steps.auth.outputs.mode == 'pat' }}
         uses: actions/checkout@v4
@@ -79,7 +75,6 @@ jobs:
           token: ${{ secrets.PRIVATE_REPO_TOKEN }}
           persist-credentials: false
 
-      # KÉO CODE từ repo PRIVATE (SSH)
       - name: Checkout PRIVATE via SSH Deploy Key
         if: ${{ steps.auth.outputs.mode == 'ssh' }}
         uses: actions/checkout@v4
@@ -104,7 +99,6 @@ jobs:
           echo "== 20 files in commit =="
           git ls-tree -r --name-only HEAD | head -n 20
 
-      # Tự tìm thư mục chứa scripts/generate_thumbnails.py (kể cả khi không nhập workdir)
       - name: Detect script path
         id: find_script
         run: |
@@ -125,7 +119,6 @@ jobs:
           echo "dir=$CAND" >> "$GITHUB_OUTPUT"
           echo "[FOUND] $CAND"
 
-      # Bắt buộc có secrets YT để up thẳng
       - name: Require YT OAuth secrets
         shell: bash
         run: |
@@ -161,7 +154,11 @@ jobs:
 
       - name: Install Python libs
         run: |
-          python -m pip install --upgrade pip wheel "setuptools<81"
+          python -m pip install --upgrade pip wheel
+          # PIN cứng setuptools có pkg_resources
+          python -m pip install --force-reinstall --no-deps "setuptools==80.9.0"
+          python -c "import setuptools, pkg_resources; print('setuptools=', setuptools.__version__, 'pkg_resources OK')"
+
           # Libs ảnh / video phụ trợ
           python -m pip install pillow opencv-python-headless numpy gdown imageio-ffmpeg
           # Google API (nếu upload YouTube)
@@ -174,15 +171,14 @@ jobs:
           # YAMNet (TensorFlow) để lọc nhạc
           python -m pip install tensorflow-cpu tensorflow-hub
 
-          # loc banner qr
+          # loc banner qr (giữ như bạn)
           python -m pip install opencv-python-headless
-          # Kiểm tra import (dùng python -c để tránh lỗi YAML here-doc)
-          python -c "import sys; import whisper, torch, torchaudio; print('Whisper/Torch OK:', whisper.__version__, torch.__version__)"
+
+          python -c "import whisper, torch, torchaudio; print('Whisper/Torch OK:', whisper.__version__, torch.__version__)"
 
       - name: Install Python deps
         run: |
           set -e
-          python -m pip install --upgrade "setuptools<81"
           REQ=$(ls private-src/**/requirements*.txt 2>/dev/null | head -n1 || true)
           if [ -n "$REQ" ]; then
             echo "[INFO] Using requirements: $REQ"
@@ -190,19 +186,26 @@ jobs:
           else
             echo "[INFO] No requirements*.txt found — install tối thiểu"
             python -m pip install Pillow opencv-python-headless numpy gdown \
-                        google-api-python-client google-auth google-auth-httplib2 \
-                        imageio-ffmpeg tensorflow-cpu tensorflow-hub
+              google-api-python-client google-auth google-auth-httplib2 \
+              imageio-ffmpeg tensorflow-cpu tensorflow-hub
           fi
-          python -m pip install --upgrade "setuptools<81"
 
-      # CHẠY CODE trong repo PRIVATE (upload YouTube trực tiếp)
+          # CHỐT LẠI setuptools sau khi cài requirements (để requirements không kéo lên bản mới)
+          python -m pip install --force-reinstall --no-deps "setuptools==80.9.0"
+          python -c "import setuptools, pkg_resources; print('FINAL setuptools=', setuptools.__version__, 'pkg_resources OK')"
+
+      # QUAN TRỌNG: chốt lần cuối ngay trước khi chạy pipeline (để hết kiểu lúc được lúc không)
+      - name: Ensure pkg_resources before running
+        run: |
+          python -m pip install --force-reinstall --no-deps "setuptools==80.9.0"
+          python -c "import pkg_resources; print('pkg_resources OK')"
+
       - name: Run pipeline in PRIVATE
         working-directory: ${{ steps.find_script.outputs.dir }}
         run: |
           set -e
           python -u scripts/generate_thumbnails.py
 
-      # Commit & PUSH 3 CSV về repo PRIVATE qua PAT (nếu checkout bằng PAT)
       - name: Commit & push state CSVs back to PRIVATE (PAT)
         if: ${{ steps.auth.outputs.mode == 'pat' }}
         working-directory: private-src
@@ -236,7 +239,6 @@ jobs:
           git commit -m "ci(state): update promptdalay.csv, links_done.csv, tieudedalay.csv"
           git push origin HEAD:"${PRIVATE_REF}"
 
-      # Commit & PUSH 3 CSV về repo PRIVATE qua SSH (nếu checkout bằng SSH)
       - name: Commit & push state CSVs back to PRIVATE (SSH)
         if: ${{ steps.auth.outputs.mode == 'ssh' }}
         working-directory: private-src
