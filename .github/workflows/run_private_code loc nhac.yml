@@ -1,12 +1,7 @@
 name: run-private-code
 
 on:
-  schedule:
-    - cron: "0 3 * * *"  # chạy 4h sáng 
-    - cron: "0 9 * * *"   # chạy 10h sáng 
-      
   workflow_dispatch: {}
-
 
 jobs:
   run-private:
@@ -60,14 +55,13 @@ jobs:
       - name: Resolve parameters (support schedule without inputs)
         id: params
         run: |
-          repo="${{ inputs.private_repo }}"; [ -z "$repo" ] && repo="tongdatram-wq/rieng-tu"; echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          repo="${{ inputs.private_repo }}"; [ -z "$repo" ] && repo="colfleshjadein2404997-oss/tesst-mc"; echo "repo=$repo" >> "$GITHUB_OUTPUT"
           ref="${{ inputs.private_ref }}";   [ -z "$ref" ] && ref="main";                                           echo "ref=$ref"   >> "$GITHUB_OUTPUT"
           wd="${{ inputs.workdir }}";        [ -z "$wd" ]  && wd=".";                                               echo "workdir=$wd" >> "$GITHUB_OUTPUT"
           privacy="${{ inputs.youtube_privacy }}"; [ -z "$privacy" ] && privacy="public";                           echo "privacy=$privacy" >> "$GITHUB_OUTPUT"
 
       - name: Export resolved privacy to env
         run: echo "YOUTUBE_PRIVACY=${{ steps.params.outputs.privacy }}" >> "$GITHUB_ENV"
-
 
       # KÉO CODE từ repo PRIVATE (PAT)
       - name: Checkout PRIVATE via PAT
@@ -143,7 +137,6 @@ jobs:
           fi
           echo "[OK] YT secrets đầy đủ."
 
-
       - name: Setup Python 3.11
         uses: actions/setup-python@v5
         with:
@@ -161,9 +154,10 @@ jobs:
           key: ${{ runner.os }}-pip-${{ hashFiles('private-src/**/requirements*.txt') }}
           restore-keys: |
             ${{ runner.os }}-pip-
+
       - name: Install Python libs
         run: |
-          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install --upgrade pip wheel "setuptools<81"
           # Libs ảnh / video phụ trợ
           python -m pip install pillow opencv-python-headless numpy gdown imageio-ffmpeg
           # Google API (nếu upload YouTube)
@@ -176,7 +170,6 @@ jobs:
           # YAMNet (TensorFlow) để lọc nhạc
           python -m pip install tensorflow-cpu tensorflow-hub
 
-
           # loc banner qr
           python -m pip install opencv-python-headless
           # Kiểm tra import (dùng python -c để tránh lỗi YAML here-doc)
@@ -185,16 +178,18 @@ jobs:
       - name: Install Python deps
         run: |
           set -e
+          python -m pip install --upgrade "setuptools<81"
           REQ=$(ls private-src/**/requirements*.txt 2>/dev/null | head -n1 || true)
           if [ -n "$REQ" ]; then
             echo "[INFO] Using requirements: $REQ"
-            pip install -r "$REQ"
+            python -m pip install -r "$REQ"
           else
             echo "[INFO] No requirements*.txt found — install tối thiểu"
-            pip install Pillow opencv-python-headless numpy gdown \
+            python -m pip install Pillow opencv-python-headless numpy gdown \
                         google-api-python-client google-auth google-auth-httplib2 \
                         imageio-ffmpeg tensorflow-cpu tensorflow-hub
           fi
+          python -m pip install --upgrade "setuptools<81"
 
       # CHẠY CODE trong repo PRIVATE (upload YouTube trực tiếp)
       - name: Run pipeline in PRIVATE
